@@ -7,12 +7,12 @@ ssh team@176.109.91.44
 
 2. **Склонировать github репозиторий**
 ```bash
-git clone <URL_РЕПОЗИТОРИЯ>
+git clone git@github.com:gromfy01/HW_vvedeniya.git
 ```
 
 3. **Перейти в директорию hw1/**
 ```bash
-cd <URL_РЕПОЗИТОРИЯ>/hw1
+cd HW_vvedeniya/hw1
 ```
 
 4. **Запустить Bash-script и на запрос ввести пароль пользователя team**
