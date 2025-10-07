@@ -1,0 +1,87 @@
+---
+- name: Stop and clean Hadoop cluster completely
+  hosts: all
+  become: true
+  vars:
+    hadoop_user: hadoop
+    hadoop_group: hadoop
+    hadoop_home: /home/hadoop
+    hadoop_dirs:
+      - "{{ hadoop_home }}"
+      - "/tmp/hadoop-{{ hadoop_user }}/dfs/name"
+      - "/tmp/hadoop-{{ hadoop_user }}/dfs/data"
+
+  tasks:
+    - name: Stop Hadoop daemons gracefully (if any)
+      shell: |
+        if command -v stop-dfs.sh >/dev/null 2>&1; then
+          su - {{ hadoop_user }} -c "stop-dfs.sh" || true
+        fi
+        if command -v stop-yarn.sh >/dev/null 2>&1; then
+          su - {{ hadoop_user }} -c "stop-yarn.sh" || true
+        fi
+      ignore_errors: true
+
+    - name: Kill any remaining Hadoop Java processes
+      ansible.builtin.shell: |
+        pkill -f 'DataNode' || true
+        pkill -f 'NameNode' || true
+        pkill -f 'SecondaryNameNode' || true
+        pkill -f 'JournalNode' || true
+        pkill -f 'DFSZKFailoverController' || true
+        pkill -f 'ResourceManager' || true
+        pkill -f 'NodeManager' || true
+        pkill -f 'JobHistoryServer' || true:
+      ignore_errors: true
+      failed_when: false
+      args:
+        warn: false
+
+
+    - name: Kill any remaining processes of hadoop user
+      shell: |
+        pids=$(pgrep -u {{ hadoop_user }}) || true
+        if [ -n "$pids" ]; then
+          echo "Killing all processes for user {{ hadoop_user }}: $pids"
+          kill -9 $pids || true
+        fi
+      ignore_errors: true
+
+    - name: Wait briefly after killing processes
+      pause:
+        seconds: 2
+
+    - name: Ensure no hadoop processes remain
+      shell: "pgrep -u {{ hadoop_user }} || true"
+      register: hadoop_leftover
+      changed_when: false
+
+    - name: Print warning if some hadoop processes still exist
+      debug:
+        msg: "Still running processes for {{ hadoop_user }}: {{ hadoop_leftover.stdout_lines }}"
+      when: hadoop_leftover.stdout != ""
+
+    - name: Remove Hadoop installation/data directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ hadoop_dirs }}"
+      ignore_errors: true
+
+    - name: Remove Hadoop user (after processes are killed)
+      ansible.builtin.user:
+        name: "{{ hadoop_user }}"
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+    - name: Remove Hadoop group if exists
+      ansible.builtin.group:
+        name: "{{ hadoop_group }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Final confirmation
+      debug:
+        msg: "Hadoop cluster completely cleaned on {{ inventory_hostname }}"
+
