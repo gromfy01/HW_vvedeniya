@@ -7,7 +7,7 @@ ssh team@176.109.91.44
 
 2. **Склонировать github репозиторий**
 ```bash
-git clone git@github.com:gromfy01/HW_vvedeniya.git
+git clone https://github.com/gromfy01/HW_vvedeniya.git
 ```
 
 3. **Перейти в директорию hw1/**
