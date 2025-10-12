@@ -1,0 +1,18 @@
+hadoop_version: "3.3.6"
+hadoop_install_dir: "/opt"
+hadoop_home: "/opt/hadoop-{{ hadoop_version }}"
+hadoop_symlink: "/opt/hadoop"
+hadoop_user: "team"
+hadoop_group: "team"
+
+fs_defaultfs: "hdfs://192.168.1.35:9000"
+
+yarn_rm_host: "192.168.1.35"
+yarn_hs_host: "192.168.1.35"
+yarn_proxy_host: "0.0.0.0"
+
+yarn_nm_memory_mb: 4096
+yarn_nm_vcores: 2
+
+yarn_local_dir: "/var/lib/hadoop-yarn"
+yarn_log_dir: "/var/log/hadoop-yarn"

@@ -1,0 +1,39 @@
+---
+- name: Deploy YARN cluster
+  hosts: all
+  become: true
+  roles:
+    - role: common
+    - role: hadoop
+
+- name: Configure and start ResourceManager
+  hosts: resourcemanager
+  become: true
+  roles:
+    - role: yarn
+      vars:
+        yarn_role: "resourcemanager"
+
+- name: Configure and start NodeManagers
+  hosts: nodemanagers
+  become: true
+  roles:
+    - role: yarn
+      vars:
+        yarn_role: "nodemanager"
+
+- name: Configure and start HistoryServer
+  hosts: historyserver
+  become: true
+  roles:
+    - role: yarn
+      vars:
+        yarn_role: "historyserver"
+
+- name: Configure and start WebProxy
+  hosts: proxyserver
+  become: true
+  roles:
+    - role: yarn
+      vars:
+        yarn_role: "proxyserver"

@@ -1,0 +1,43 @@
+---
+- name: Create install dir
+  file:
+    path: "{{ hadoop_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Download Hadoop archive
+  get_url:
+    url: "https://downloads.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    mode: '0644'
+
+- name: Unpack Hadoop
+  unarchive:
+    src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "{{ hadoop_install_dir }}"
+    remote_src: true
+    creates: "{{ hadoop_home }}"
+
+- name: Symlink /opt/hadoop -> current version
+  file:
+    src: "{{ hadoop_home }}"
+    dest: "{{ hadoop_symlink }}"
+    state: link
+    force: true
+
+- name: Ensure config dir
+  file:
+    path: /etc/hadoop
+    state: directory
+    mode: '0755'
+
+- name: Install /etc/profile.d/hadoop.sh
+  copy:
+    src: profile.d/hadoop.sh
+    dest: /etc/profile.d/hadoop.sh
+    mode: '0644'
+
+- name: Source profile for current shell
+  shell: . /etc/profile.d/hadoop.sh
+  args:
+    executable: /bin/bash

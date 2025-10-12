@@ -1,0 +1,95 @@
+---
+- name: Ensure YARN data/log dirs
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_group }}"
+    mode: '0755'
+  loop:
+    - "{{ yarn_local_dir }}"
+    - "{{ yarn_log_dir }}"
+
+- name: Deploy core-site.xml
+  template:
+    src: core-site.xml.j2
+    dest: /etc/hadoop/core-site.xml
+    mode: '0644'
+
+- name: Deploy yarn-site.xml
+  template:
+    src: yarn-site.xml.j2
+    dest: /etc/hadoop/yarn-site.xml
+    mode: '0644'
+
+- name: Deploy mapred-site.xml
+  template:
+    src: mapred-site.xml.j2
+    dest: /etc/hadoop/mapred-site.xml
+    mode: '0644'
+
+- name: Deploy hadoop-env.sh
+  template:
+    src: hadoop-env.sh.j2
+    dest: /etc/hadoop/hadoop-env.sh
+    mode: '0644'
+
+- name: Create systemd unit for ResourceManager
+  template:
+    src: resourcemanager.service.j2
+    dest: /etc/systemd/system/hadoop-resourcemanager.service
+    mode: '0644'
+  when: yarn_role == 'resourcemanager'
+
+- name: Create systemd unit for NodeManager
+  template:
+    src: nodemanager.service.j2
+    dest: /etc/systemd/system/hadoop-nodemanager.service
+    mode: '0644'
+  when: yarn_role == 'nodemanager'
+
+- name: Create systemd unit for JobHistoryServer
+  template:
+    src: historyserver.service.j2
+    dest: /etc/systemd/system/hadoop-historyserver.service
+    mode: '0644'
+  when: yarn_role == 'historyserver'
+
+- name: Create systemd unit for Web Proxy
+  template:
+    src: proxyserver.service.j2
+    dest: /etc/systemd/system/hadoop-proxyserver.service
+    mode: '0644'
+  when: yarn_role == 'proxyserver'
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Enable & start RM
+  systemd:
+    name: hadoop-resourcemanager
+    enabled: true
+    state: started
+  when: yarn_role == 'resourcemanager'
+
+- name: Enable & start NM
+  systemd:
+    name: hadoop-nodemanager
+    enabled: true
+    state: started
+  when: yarn_role == 'nodemanager'
+
+- name: Enable & start HS
+  systemd:
+    name: hadoop-historyserver
+    enabled: true
+    state: started
+  when: yarn_role == 'historyserver'
+
+- name: Enable & start Proxy
+  systemd:
+    name: hadoop-proxyserver
+    enabled: true
+    state: started
+  when: yarn_role == 'proxyserver'

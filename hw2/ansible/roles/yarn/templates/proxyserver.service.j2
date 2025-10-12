@@ -1,0 +1,13 @@
+[Unit]
+Description=Hadoop YARN Web App Proxy
+After=network.target
+
+[Service]
+User={{ hadoop_user }}
+Group={{ hadoop_group }}
+Environment=HADOOP_CONF_DIR=/etc/hadoop
+ExecStart=/bin/bash -lc '{{ hadoop_symlink }}/bin/yarn proxyserver'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
