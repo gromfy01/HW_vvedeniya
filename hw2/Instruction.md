@@ -1,114 +1,129 @@
+```markdown
 # Инструкция по развёртыванию кластера YARN
 
-## Предпосылки
-- Кластер HDFS (из ДЗ 1) уже развёрнут и работает
-- 4 ВМ с Ubuntu 24.04, Python 3.12.3, Java 11.0.26
-- Пользователь `team` с sudo правами
-- Сетевые адреса: 192.168.1.35-38
-
-## Быстрая установка
-
-1. **Подключитесь к jump-ноде:**
+1. **Все действия выполняем на jn ноде**
 ```bash
 ssh team@176.109.91.44
-Клонируйте репозиторий:
+```
 
-bash
+2. **Склонировать github репозиторий**
+```bash
 git clone https://github.com/gromfy01/HW_vvedeniya.git
+```
+
+3. **Перейти в директорию hw2/**
+```bash
 cd HW_vvedeniya/hw2
-Запустите подготовительный скрипт:
+```
 
-bash
+4. **Запустить Bash-script и на запрос ввести пароль пользователя team**
+```bash
 bash ./prepare.sh
-Введите пароль пользователя team: 8tdxAQ-nov
+```
 
-Запустите развёртывание YARN:
+Он устанавливает Ansible, sshpass, затем генерирует ssh-ключи и раскладывает их по нодам.
 
-bash
+5. **Перейти в поддиректорию ansible/**
+```bash
 cd ansible
+```
+
+6. **Запустить Ansible playbook и на запрос ввести пароль пользователя team**
+```bash
 ansible-playbook -i inventory.ini create_yarn_cluster.yml --ask-become-pass
-Введите пароль пользователя team при запросе.
+```
 
-Проверка установки
-Проверка сервисов
-bash
-# На ResourceManager узле (192.168.1.35)
-systemctl status hadoop-resourcemanager
-/opt/hadoop/bin/yarn node -list  # Должны быть 3 NodeManager
+Он разворачивает кластер YARN и выполняет проверки корректности установки.
 
-# На NodeManager узлах
-systemctl status hadoop-nodemanager
+7. **Запустить ssh туннели и проверить доступность web-интерфейсов**
 
-# На HistoryServer узле
-systemctl status hadoop-historyserver
-Тестовая MR задача
-bash
-/opt/hadoop/bin/hadoop jar \
-  /opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar \
-  pi 2 100
-Доступ к веб-интерфейсам
-На локальной машине выполните:
-
-bash
-# ResourceManager UI
+Для ResourceManager:
+```bash
 ssh -L 8088:192.168.1.35:8088 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:8088/](http://localhost:8088/)
 
-# NodeManager UI (для любого NM)
+Для NodeManager:
+```bash
 ssh -L 8042:192.168.1.36:8042 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:8042/](http://localhost:8042/)
 
-# JobHistory UI
+Для JobHistory:
+```bash
 ssh -L 19888:192.168.1.35:19888 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:19888/](http://localhost:19888/)
 
-# Web App Proxy
+Для Web Proxy:
+```bash
 ssh -L 9099:192.168.1.35:9099 team@176.109.91.44
-Откройте в браузере:
+```
+После этого в браузере откройте: [http://localhost:9099/](http://localhost:9099/)
+```
 
-ResourceManager: http://localhost:8088
+Чтобы обновить файл, выполни:
 
-NodeManager: http://localhost:8042
+```bash
+cat > hw2/Instruction.md << 'EOF'
+# Инструкция по развёртыванию кластера YARN
 
-JobHistory: http://localhost:19888
+1. **Все действия выполняем на jn ноде**
+```bash
+ssh team@176.109.91.44
+```
 
-Web Proxy: http://localhost:9099
+2. **Склонировать github репозиторий**
+```bash
+git clone https://github.com/gromfy01/HW_vvedeniya.git
+```
 
-Порты сервисов
-ResourceManager Web UI: 8088
+3. **Перейти в директорию hw2/**
+```bash
+cd HW_vvedeniya/hw2
+```
 
-NodeManager Web UI: 8042
+4. **Запустить Bash-script и на запрос ввести пароль пользователя team**
+```bash
+bash ./prepare.sh
+```
 
-JobHistory Web UI: 19888
+Он устанавливает Ansible, sshpass, затем генерирует ssh-ключи и раскладывает их по нодам.
 
-Web App Proxy: 9099
+5. **Перейти в поддиректорию ansible/**
+```bash
+cd ansible
+```
 
-Структура репозитория
-text
-hw2/
-├── Instruction.md
-├── prepare.sh
-└── ansible/
-    ├── inventory.ini
-    ├── group_vars/
-    │   └── all.yml
-    ├── roles/
-    │   ├── common/
-    │   │   └── tasks/
-    │   │       └── main.yml
-    │   ├── hadoop/
-    │   │   └── tasks/
-    │   │       └── main.yml
-    │   └── yarn/
-    │       ├── tasks/
-    │       │   └── main.yml
-    │       ├── templates/
-    │       │   ├── core-site.xml.j2
-    │       │   ├── yarn-site.xml.j2
-    │       │   ├── mapred-site.xml.j2
-    │       │   ├── hadoop-env.sh.j2
-    │       │   ├── resourcemanager.service.j2
-    │       │   ├── nodemanager.service.j2
-    │       │   ├── historyserver.service.j2
-    │       │   └── proxyserver.service.j2
-    │       └── files/
-    │           └── profile.d/
-    │               └── hadoop.sh
-    └── create_yarn_cluster.yml
+6. **Запустить Ansible playbook и на запрос ввести пароль пользователя team**
+```bash
+ansible-playbook -i inventory.ini create_yarn_cluster.yml --ask-become-pass
+```
+
+Он разворачивает кластер YARN и выполняет проверки корректности установки.
+
+7. **Запустить ssh туннели и проверить доступность web-интерфейсов**
+
+Для ResourceManager:
+```bash
+ssh -L 8088:192.168.1.35:8088 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:8088/](http://localhost:8088/)
+
+Для NodeManager:
+```bash
+ssh -L 8042:192.168.1.36:8042 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:8042/](http://localhost:8042/)
+
+Для JobHistory:
+```bash
+ssh -L 19888:192.168.1.35:19888 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:19888/](http://localhost:19888/)
+
+Для Web Proxy:
+```bash
+ssh -L 9099:192.168.1.35:9099 team@176.109.91.44
+```
+После этого в браузере откройте: [http://localhost:9099/](http://localhost:9099/)
