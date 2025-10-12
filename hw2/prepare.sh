@@ -6,7 +6,6 @@ USER="team"
 KEY="$HOME/.ssh/id_rsa"
 PUBKEY="$KEY.pub"
 
-# Install Ansible and sshpass
 if ! command -v ansible >/dev/null 2>&1; then
   echo "Installing Ansible and sshpass..."
   sudo apt-get update
@@ -15,7 +14,6 @@ else
   echo "Ansible is already installed."
 fi
 
-# Generate SSH key if missing
 [[ -f "$KEY" && -f "$PUBKEY" ]] || ssh-keygen -t rsa -b 4096 -N '' -f "$KEY"
 
 # Read password once
