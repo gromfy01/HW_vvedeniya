@@ -1,95 +1,105 @@
 ---
-- name: Ensure YARN data/log dirs
-  file:
-    path: "{{ item }}"
-    state: directory
-    owner: "{{ hadoop_user }}"
-    group: "{{ hadoop_group }}"
-    mode: '0755'
-  loop:
-    - "{{ yarn_local_dir }}"
-    - "{{ yarn_log_dir }}"
-
-- name: Deploy core-site.xml
-  template:
-    src: core-site.xml.j2
-    dest: /etc/hadoop/core-site.xml
-    mode: '0644'
-
-- name: Deploy yarn-site.xml
-  template:
+# YARN CONFIGURATION FILES
+- name: Replace yarn-site.xml
+  become: yes
+  ansible.builtin.template:
     src: yarn-site.xml.j2
-    dest: /etc/hadoop/yarn-site.xml
+    dest: /home/hadoop/hadoop-3.4.0/etc/hadoop/yarn-site.xml
+    owner: hadoop
+    group: hadoop
     mode: '0644'
+  when: inventory_hostname in ['nn', 'dn-00', 'dn-01']
 
-- name: Deploy mapred-site.xml
-  template:
+# MAPREDUCE CONFIGURATION FILES
+- name: Replace mapred-site.xml
+  become: yes
+  ansible.builtin.template:
     src: mapred-site.xml.j2
-    dest: /etc/hadoop/mapred-site.xml
+    dest: /home/hadoop/hadoop-3.4.0/etc/hadoop/mapred-site.xml
+    owner: hadoop
+    group: hadoop
     mode: '0644'
+  when: inventory_hostname in ['nn', 'dn-00', 'dn-01']
 
-- name: Deploy hadoop-env.sh
-  template:
-    src: hadoop-env.sh.j2
-    dest: /etc/hadoop/hadoop-env.sh
-    mode: '0644'
+- name: Start yarn
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && start-yarn.sh"
+  when: inventory_hostname == 'nn'
 
-- name: Create systemd unit for ResourceManager
-  template:
-    src: resourcemanager.service.j2
-    dest: /etc/systemd/system/hadoop-resourcemanager.service
-    mode: '0644'
-  when: yarn_role == 'resourcemanager'
+- name: Start historyserver
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && mapred --daemon start historyserver"
+  when: inventory_hostname == 'nn'
 
-- name: Create systemd unit for NodeManager
-  template:
-    src: nodemanager.service.j2
-    dest: /etc/systemd/system/hadoop-nodemanager.service
-    mode: '0644'
-  when: yarn_role == 'nodemanager'
+- name: Verify Yarn Web UI is reachable
+  become: no
+  ansible.builtin.uri:
+    url: "http://{{ inventory_hostname }}:8088"
+    return_content: no
+    status_code: 200
+    timeout: 5
+  register: yarn_ui
+  retries: 5
+  delay: 10
+  until: yarn_ui.status == 200
+  when: inventory_hostname == 'nn'
 
-- name: Create systemd unit for JobHistoryServer
-  template:
-    src: historyserver.service.j2
-    dest: /etc/systemd/system/hadoop-historyserver.service
-    mode: '0644'
-  when: yarn_role == 'historyserver'
+- name: Verify JobHistoryserver Web UI is reachable
+  become: no
+  ansible.builtin.uri:
+    url: "http://{{ inventory_hostname }}:19888"
+    return_content: no
+    status_code: 200
+    timeout: 5
+  register: jobhistoryserver_ui
+  retries: 5
+  delay: 10
+  until: jobhistoryserver_ui.status == 200
+  when: inventory_hostname == 'nn'
 
-- name: Create systemd unit for Web Proxy
-  template:
-    src: proxyserver.service.j2
-    dest: /etc/systemd/system/hadoop-proxyserver.service
-    mode: '0644'
-  when: yarn_role == 'proxyserver'
+# CHECK LOGS FOR ERRORS AND EXCEPTIONS
+- name: Check logs for ERROR
+  become: yes
+  vars:
+    hadoop_log_dir: "/home/hadoop/hadoop-3.4.0/logs"
+  ansible.builtin.shell: "grep -i 'error' {{ hadoop_log_dir }}/*.log || true"
+  register: error_logs
+  changed_when: false
+  ignore_errors: yes
 
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
+- name: Check logs for Exception
+  become: yes
+  vars:
+    hadoop_log_dir: "/home/hadoop/hadoop-3.4.0/logs"
+  ansible.builtin.shell: "grep -i 'Exception' {{ hadoop_log_dir }}/*.log || true"
+  register: exception_logs
+  changed_when: false
+  ignore_errors: yes
 
-- name: Enable & start RM
-  systemd:
-    name: hadoop-resourcemanager
-    enabled: true
-    state: started
-  when: yarn_role == 'resourcemanager'
+- name: Print logs summary
+  ansible.builtin.debug:
+    msg: |
+      Logs summary for {{ inventory_hostname }}:
+      ERROR lines:
+      {{ error_logs.stdout if error_logs.stdout != "" else "No ERRORs found" }}
+      Exception lines:
+      {{ exception_logs.stdout if exception_logs.stdout != "" else "No Exceptions found" }}
 
-- name: Enable & start NM
-  systemd:
-    name: hadoop-nodemanager
-    enabled: true
-    state: started
-  when: yarn_role == 'nodemanager'
 
-- name: Enable & start HS
-  systemd:
-    name: hadoop-historyserver
-    enabled: true
-    state: started
-  when: yarn_role == 'historyserver'
+# VERIFY JPS PROCESSES
 
-- name: Enable & start Proxy
-  systemd:
-    name: hadoop-proxyserver
-    enabled: true
-    state: started
-  when: yarn_role == 'proxyserver'
+- name: Verify JPS is running on all nodes
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "jps"
+  register: jps_output
+  ignore_errors: true
+  when: inventory_hostname in ['nn', 'dn-00', 'dn-01']
+
+- name: Print Java processes summary
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} running: {{ jps_output.stdout_lines | default([]) }}"
+  when: inventory_hostname in ['nn', 'dn-00', 'dn-01']
+

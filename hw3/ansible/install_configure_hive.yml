@@ -1,0 +1,6 @@
+---
+- name: Install and Configure Hive
+  hosts: hadoop_nodes
+  become: true
+  roles:
+    - role: hive

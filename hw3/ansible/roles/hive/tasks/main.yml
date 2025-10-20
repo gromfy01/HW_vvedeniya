@@ -1,0 +1,172 @@
+---
+- name: Install PostgreSQL
+  become: yes
+  apt:
+    name: postgresql-16
+    state: present
+    update_cache: true
+  when: inventory_hostname in ['dn-01']
+
+- name: edit postgresql.conf
+  lineinfile:
+    path: "/etc/postgresql/16/main/postgresql.conf"
+    regexp: '^#?listen_addresses\s*='
+    line: "listen_addresses = 'dn-01'"
+    state: present
+  notify: Restart PostgreSQL
+  when: inventory_hostname in ['dn-01']
+
+- name: edit pg_hba.conf
+  lineinfile:
+    path: "/etc/postgresql/16/main/pg_hba.conf"
+    insertafter: EOF
+    line: "host    metastore    hive    192.168.1.35/32    password"
+    state: present
+  notify: Restart PostgreSQL
+  when: inventory_hostname in ['dn-01']
+
+- name: Create database metastore
+  shell: su - postgres -c "psql -c 'CREATE DATABASE metastore;'"
+  become: yes
+  ignore_errors: true
+  when: inventory_hostname in ['dn-01']
+
+- name: Create user hive
+  shell: su - postgres -c "psql -c \"CREATE USER hive WITH PASSWORD 'hiveMegaPass';\""
+  become: yes
+  ignore_errors: true
+  when: inventory_hostname in ['dn-01']
+
+- name: Grant privileges to hive
+  shell:  su - postgres -c "psql -c 'GRANT ALL PRIVILEGES ON DATABASE metastore TO hive;'"
+  become: yes
+  when: inventory_hostname in ['dn-01']
+
+- name: Set hive as owner of the database
+  shell:  su - postgres -c "psql -c 'ALTER DATABASE metastore OWNER TO hive;'"
+  become: yes
+  when: inventory_hostname in ['dn-01']
+
+- name: Install client PostgreSQL
+  become: yes
+  apt:
+    name: postgresql-client-16
+    state: present
+    update_cache: true
+  when: inventory_hostname in ['nn']
+
+# DOWNLOAD AND EXTRACT Hive
+- name: Download Hive 4.0.0 locally (if not exists)
+  delegate_to: localhost
+  become: false
+  ansible.builtin.get_url:
+    url: https://archive.apache.org/dist/hive/hive-4.0.0-alpha-2/apache-hive-4.0.0-alpha-2-bin.tar.gz
+    dest: ./files/apache-hive-4.0.0-alpha-2-bin.tar.gz
+    mode: '0644'
+  when: not lookup('ansible.builtin.fileglob', './files/apache-hive-4.0.0-alpha-2-bin.tar.gz')
+
+- name: Copy Hive
+  become: yes
+  ansible.builtin.copy:
+    src: ./files/apache-hive-4.0.0-alpha-2-bin.tar.gz
+    dest: /home/hadoop/apache-hive-4.0.0-alpha-2-bin.tar.gz
+    owner: hadoop
+    group: hadoop
+    mode: '0644'
+  when: inventory_hostname in ['nn']
+
+- name: Extract Hive
+  become: yes
+  ansible.builtin.unarchive:
+    src: /home/hadoop/apache-hive-4.0.0-alpha-2-bin.tar.gz
+    dest: /home/hadoop/
+    remote_src: yes
+    owner: hadoop
+    group: hadoop
+  when: inventory_hostname in ['nn']
+
+- name: Download jdbc driver postgresql
+  delegate_to: localhost
+  become: false
+  ansible.builtin.get_url:
+    url: https://jdbc.postgresql.org/download/postgresql-42.7.4.jar
+    dest: ./files/postgresql-42.7.4.jar
+    mode: '0644'
+  when: not lookup('ansible.builtin.fileglob', './files/postgresql-42.7.4.jar')  
+
+- name: Copy jdbc driver postgresql
+  become: yes
+  ansible.builtin.copy:
+    src: ./files/postgresql-42.7.4.jar
+    dest: /home/hadoop/apache-hive-4.0.0-alpha-2-bin/lib/postgresql-42.7.4.jar
+    owner: hadoop
+    group: hadoop
+    mode: '0644'
+  when: inventory_hostname in ['nn']
+
+# Hive CONFIGURATION FILE
+- name: Replace hive-site.xml
+  become: yes
+  ansible.builtin.template:
+    src: hive-site.xml.j2
+    dest: /home/hadoop/apache-hive-4.0.0-alpha-2-bin/conf/hive-site.xml
+    owner: hadoop
+    group: hadoop
+    mode: '0644'
+  when: inventory_hostname in ['nn']
+
+- name: Add Hve environment variables to .profile
+  become: yes
+  ansible.builtin.blockinfile:
+    path: /home/hadoop/.profile
+    owner: hadoop
+    group: hadoop
+    create: yes
+    mode: '0644'
+    block: |
+      export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+      export HADOOP_HOME=/home/hadoop/hadoop-3.4.0
+      export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+      export HIVE_HOME=/home/hadoop/apache-hive-4.0.0-alpha-2-bin
+      export HIVE_CONF_DIR=$HIVE_HOME/conf
+      export HIVE_AUX_JAR_PATH=$HIVE_HOME/lib/*
+      export PATH=$PATH:$HIVE_HOME/bin
+  when: inventory_hostname in ['nn']
+
+
+- name: Create hdfs dir for hive
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && hdfs dfs -mkdir -p /user/hive/warehouse && hdfs dfs -mkdir -p /tmp && hdfs dfs -chmod g+w /user/hive/warehouse && hdfs dfs -chmod g+w /tmp"
+  when: inventory_hostname == 'nn'
+
+- name: Init metastore
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && schematool -dbType postgres -initSchema"
+  when: inventory_hostname == 'nn'
+
+- name: Start hive
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && hive --hiveconf hive.server2.enable.doAs=false --hiveconf hive.security.authorization.enabled=false --service hiveserver2 1>> /tmp/hs2.log 2>> /tmp/hs2_e.log &"
+  when: inventory_hostname == 'nn'
+
+- name: Connect to hive
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && beeline -u jdbc:hive2://nn:5433"
+  when: inventory_hostname == 'nn'
+
+- name: Verify Hive Web UI is reachable
+  become: no
+  ansible.builtin.uri:
+    url: "http://{{ inventory_hostname }}:10002"
+    return_content: no
+    status_code: 200
+    timeout: 5
+  register: hive_ui
+  retries: 5
+  delay: 10
+  until: yarn_ui.status == 200
+  when: inventory_hostname == 'nn'
