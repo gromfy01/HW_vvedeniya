@@ -1,6 +1,13 @@
 ---
+- name: Install and Configure Postgres
+  hosts: dn-01
+  become: true
+  roles:
+    - role: postgres
+
+
 - name: Install and Configure Hive
-  hosts: hadoop_nodes
+  hosts: nn
   become: true
   roles:
     - role: hive

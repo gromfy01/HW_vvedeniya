@@ -1,59 +1,10 @@
 ---
-- name: Install PostgreSQL
-  become: yes
-  apt:
-    name: postgresql-16
-    state: present
-    update_cache: true
-  when: inventory_hostname in ['dn-01']
-
-- name: edit postgresql.conf
-  lineinfile:
-    path: "/etc/postgresql/16/main/postgresql.conf"
-    regexp: '^#?listen_addresses\s*='
-    line: "listen_addresses = 'dn-01'"
-    state: present
-  notify: Restart PostgreSQL
-  when: inventory_hostname in ['dn-01']
-
-- name: edit pg_hba.conf
-  lineinfile:
-    path: "/etc/postgresql/16/main/pg_hba.conf"
-    insertafter: EOF
-    line: "host    metastore    hive    192.168.1.35/32    password"
-    state: present
-  notify: Restart PostgreSQL
-  when: inventory_hostname in ['dn-01']
-
-- name: Create database metastore
-  shell: su - postgres -c "psql -c 'CREATE DATABASE metastore;'"
-  become: yes
-  ignore_errors: true
-  when: inventory_hostname in ['dn-01']
-
-- name: Create user hive
-  shell: su - postgres -c "psql -c \"CREATE USER hive WITH PASSWORD 'hiveMegaPass';\""
-  become: yes
-  ignore_errors: true
-  when: inventory_hostname in ['dn-01']
-
-- name: Grant privileges to hive
-  shell:  su - postgres -c "psql -c 'GRANT ALL PRIVILEGES ON DATABASE metastore TO hive;'"
-  become: yes
-  when: inventory_hostname in ['dn-01']
-
-- name: Set hive as owner of the database
-  shell:  su - postgres -c "psql -c 'ALTER DATABASE metastore OWNER TO hive;'"
-  become: yes
-  when: inventory_hostname in ['dn-01']
-
 - name: Install client PostgreSQL
   become: yes
   apt:
     name: postgresql-client-16
     state: present
     update_cache: true
-  when: inventory_hostname in ['nn']
 
 # DOWNLOAD AND EXTRACT Hive
 - name: Download Hive 4.0.0 locally (if not exists)
@@ -73,7 +24,6 @@
     owner: hadoop
     group: hadoop
     mode: '0644'
-  when: inventory_hostname in ['nn']
 
 - name: Extract Hive
   become: yes
@@ -83,7 +33,15 @@
     remote_src: yes
     owner: hadoop
     group: hadoop
-  when: inventory_hostname in ['nn']
+
+- name: Fix ownership of Hive directory
+  become: yes
+  ansible.builtin.file:
+    path: /home/hadoop/apache-hive-4.0.0-alpha-2-bin
+    state: directory
+    recurse: yes
+    owner: hadoop
+    group: hadoop
 
 - name: Download jdbc driver postgresql
   delegate_to: localhost
@@ -102,7 +60,6 @@
     owner: hadoop
     group: hadoop
     mode: '0644'
-  when: inventory_hostname in ['nn']
 
 # Hive CONFIGURATION FILE
 - name: Replace hive-site.xml
@@ -113,9 +70,8 @@
     owner: hadoop
     group: hadoop
     mode: '0644'
-  when: inventory_hostname in ['nn']
 
-- name: Add Hve environment variables to .profile
+- name: Add Hive environment variables to .profile
   become: yes
   ansible.builtin.blockinfile:
     path: /home/hadoop/.profile
@@ -131,42 +87,135 @@
       export HIVE_CONF_DIR=$HIVE_HOME/conf
       export HIVE_AUX_JAR_PATH=$HIVE_HOME/lib/*
       export PATH=$PATH:$HIVE_HOME/bin
-  when: inventory_hostname in ['nn']
-
 
 - name: Create hdfs dir for hive
   become: yes
   ansible.builtin.shell: |
     su - hadoop -c "source /home/hadoop/.profile && hdfs dfs -mkdir -p /user/hive/warehouse && hdfs dfs -mkdir -p /tmp && hdfs dfs -chmod g+w /user/hive/warehouse && hdfs dfs -chmod g+w /tmp"
-  when: inventory_hostname == 'nn'
 
 - name: Init metastore
   become: yes
   ansible.builtin.shell: |
     su - hadoop -c "source /home/hadoop/.profile && schematool -dbType postgres -initSchema"
-  when: inventory_hostname == 'nn'
 
 - name: Start hive
   become: yes
   ansible.builtin.shell: |
     su - hadoop -c "source /home/hadoop/.profile && hive --hiveconf hive.server2.enable.doAs=false --hiveconf hive.security.authorization.enabled=false --service hiveserver2 1>> /tmp/hs2.log 2>> /tmp/hs2_e.log &"
-  when: inventory_hostname == 'nn'
+
+- name: Wait for HiveServer2 to start
+  wait_for:
+    host: nn
+    port: 5433
+    timeout: 60
+  delegate_to: localhost
 
 - name: Connect to hive
   become: yes
   ansible.builtin.shell: |
-    su - hadoop -c "source /home/hadoop/.profile && beeline -u jdbc:hive2://nn:5433"
-  when: inventory_hostname == 'nn'
+    su - hadoop -c "source /home/hadoop/.profile && \
+    beeline -u jdbc:hive2://nn:5433 -e 'SHOW DATABASES;'"
+  register: beeline_connection
+  ignore_errors: true
 
-- name: Verify Hive Web UI is reachable
-  become: no
-  ansible.builtin.uri:
-    url: "http://{{ inventory_hostname }}:10002"
-    return_content: no
-    status_code: 200
-    timeout: 5
-  register: hive_ui
-  retries: 5
-  delay: 10
-  until: yarn_ui.status == 200
-  when: inventory_hostname == 'nn'
+- name: Copy people-10000.zip
+  copy:
+    src: /tmp/people-10000.zip
+    dest: /tmp/people-10000.zip
+  become: yes
+
+- name: Unzip CSV
+  become: yes
+  unarchive:
+    src: /tmp/people-10000.zip
+    dest: /tmp/
+    remote_src: yes
+
+- name: Create input directory
+  become: yes
+  shell: |
+    su - hadoop -c "source /home/hadoop/.profile && \
+    hdfs dfs -mkdir -p /input && \
+    hdfs dfs -chmod g+w /input"
+
+- name: Load people.csv to HDFS
+  become: yes
+  shell: |
+    su - hadoop -c "source /home/hadoop/.profile && \
+    hdfs dfs -put -f /tmp/people-10000.csv /input/"
+
+- name: Check HDFS file
+  become: yes
+  shell: |
+    su - hadoop -c "source /home/hadoop/.profile && \
+    hdfs fsck /input/people-10000.csv"
+
+- name: Create tables and load data
+  become: yes
+  shell: |
+    su - hadoop -c "source /home/hadoop/.profile && \
+    beeline -u jdbc:hive2://nn:5433 -e \"
+      DROP TABLE IF EXISTS people;
+      DROP TABLE IF EXISTS people_partitioned;
+
+      CREATE TABLE IF NOT EXISTS people (
+        Index INT,
+        UserId STRING,
+        FirstName STRING,
+        LastName STRING,
+        Sex STRING,
+        Email STRING,
+        Phone STRING,
+        DateOfBirth STRING,
+        JobTitle STRING
+      )
+      ROW FORMAT DELIMITED
+      FIELDS TERMINATED BY ','
+      STORED AS TEXTFILE
+      TBLPROPERTIES ('skip.header.line.count'='1');
+
+      LOAD DATA INPATH '/input/people-10000.csv' OVERWRITE INTO TABLE people;
+
+      CREATE TABLE IF NOT EXISTS people_partitioned (
+        Index INT,
+        UserId STRING,
+        FirstName STRING,
+        LastName STRING,
+        Email STRING,
+        Phone STRING,
+        DateOfBirth STRING,
+        JobTitle STRING
+      )
+      PARTITIONED BY (Sex STRING)
+      ROW FORMAT DELIMITED
+      FIELDS TERMINATED BY ','
+      STORED AS TEXTFILE;
+
+      SET hive.exec.dynamic.partition=true;
+      SET hive.exec.dynamic.partition.mode=nonstrict;
+
+      INSERT OVERWRITE TABLE people_partitioned PARTITION (Sex)
+      SELECT
+        Index, UserId, FirstName, LastName, Email, Phone, DateOfBirth, JobTitle, Sex
+      FROM people;
+
+      SHOW PARTITIONS people_partitioned;
+    \""
+  register: hive_create
+
+- debug:
+    msg: "{{ hive_create.stdout_lines }}"
+
+
+- name: Test requests for tables people, people_partitioned
+  become: yes
+  shell: |
+    su - hadoop -c "source /home/hadoop/.profile && \
+    beeline -u jdbc:hive2://nn:5433 -e \"
+      SELECT count(*) AS total_people FROM people;
+      SELECT Sex, count(*) AS count_per_sex FROM people_partitioned GROUP BY Sex;
+    \""
+  register: hive_check
+
+- debug:
+    msg: "{{ hive_check.stdout_lines }}"

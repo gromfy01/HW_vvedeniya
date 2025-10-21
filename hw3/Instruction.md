@@ -28,35 +28,32 @@ cd ansible
 ansible-playbook -i inventory.ini install_configure_hive.yml --ask-become-pass
 ```
 
-Он разворачивает hive и выполняет проверки корректности установки.
+Он разворачивает hive, выполняет проверки корректности установки, загружает датасет и создаёт таблицы. 
 
 6. **Запустить ssh туннели и проверить доступность web-интерфейсов**
 
-
 ```bash
-ssh -L 10002:nn:/10002 -L 9870:nn:9870 -L 8088:nn:8088  -L 19888:nn:19888 team@176.109.91.44
+ssh -L 10020:nn:/10020 -L 9870:nn:9870 -L 8088:nn:8088  -L 19888:nn:19888 team@176.109.91.44
 ```
 После этого в браузере откройте: [http://localhost:10002/](http://localhost:10002/)
 
-
-
-
-```
 Структура репозитория
+
 ```bash
 hw3/
 ├── Instruction.md
 └── ansible/
-    ├── inventory.ini
-    ├── group_vars/
-    │   └── all.yml
+    ├── inventory.ini    
     ├── roles/
-    │   │   
-    │   └── hive/
-    │       ├── tasks/
-    │       │   └── main.yml
-    │       ├── templates/
-    │       │   └── hive-site.xml.j2
-    │       └── files/
+    │   │
+    │   ├── hive/
+    │   │   ├── tasks/
+    │   │   │   └── main.yml
+    │   │   └── templates/
+    │   │       └── hive-site.xml.j2 
+    │   └── postgres/
+    │       └── tasks/
+    │           └── main.yml       
+    ├── files/
     └── install_configure_hive.yml
 ```

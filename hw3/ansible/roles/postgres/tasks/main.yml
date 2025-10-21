@@ -1,0 +1,45 @@
+---
+- name: Install PostgreSQL
+  become: yes
+  apt:
+    name: postgresql-16
+    state: present
+    update_cache: true
+
+- name: edit postgresql.conf
+  lineinfile:
+    path: "/etc/postgresql/16/main/postgresql.conf"
+    regexp: '^#?listen_addresses\s*='
+    line: "listen_addresses = 'dn-01'"
+    state: present
+
+- name: edit pg_hba.conf
+  lineinfile:
+    path: "/etc/postgresql/16/main/pg_hba.conf"
+    insertafter: EOF
+    line: "host    metastore    hive    192.168.1.35/32    password"
+    state: present
+
+- name: Create database metastore
+  shell: su - postgres -c "psql -c 'CREATE DATABASE metastore;'"
+  become: yes
+  ignore_errors: true
+
+- name: Create user hive
+  shell: su - postgres -c "psql -c \"CREATE USER hive WITH PASSWORD 'hiveMegaPass';\""
+  become: yes
+  ignore_errors: true
+
+- name: Grant privileges to hive
+  shell:  su - postgres -c "psql -c 'GRANT ALL PRIVILEGES ON DATABASE metastore TO hive;'"
+  become: yes
+
+- name: Set hive as owner of the database
+  shell:  su - postgres -c "psql -c 'ALTER DATABASE metastore OWNER TO hive;'"
+  become: yes
+
+- name: Restart PostgreSQL manually
+  become: yes
+  service:
+    name: postgresql
+    state: restarted
