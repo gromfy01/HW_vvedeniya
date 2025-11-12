@@ -1,0 +1,119 @@
+---
+- name: Ensure hadoop user exists
+  tags:
+    - sync
+  ansible.builtin.user:
+    name: "{{ hadoop_user }}"
+    shell: /bin/bash
+    create_home: yes
+
+- name: Ensure /home/hadoop/.ssh exists on jn
+  tags:
+    - sync
+  ansible.builtin.file:
+    path: /home/hadoop/.ssh
+    state: directory
+    mode: "0700"
+    owner: hadoop
+    group: hadoop
+
+- name: Define SSH files to copy
+  tags:
+    - sync
+  ansible.builtin.set_fact:
+    ssh_files:
+      - id_rsa
+      - id_rsa.pub
+      - authorized_keys
+      - known_hosts
+
+- name: Read ssh files from nn (run as root, read hadoop's .ssh)
+  tags:
+    - sync
+  ansible.builtin.slurp:
+    src: "/home/hadoop/.ssh/{{ item }}"
+  delegate_to: nn
+  become: true
+  register: slurped
+  ignore_errors: yes
+  loop: "{{ ssh_files }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Write ssh files to /home/hadoop/.ssh on jn
+  tags:
+    - sync
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "/home/hadoop/.ssh/{{ item.item }}"
+    owner: hadoop
+    group: hadoop
+    mode: "{{ '0600' if item.item == 'id_rsa' else '0644' }}"
+  loop: "{{ slurped.results | default([]) }}"
+  when: item.content is defined
+
+- name: Fix .ssh directory ownership and permissions
+  tags:
+    - sync
+  ansible.builtin.file:
+    path: /home/hadoop/.ssh
+    owner: hadoop
+    group: hadoop
+    mode: "0700"
+    recurse: yes
+
+- name: Rsync /home/hadoop from nn to jn as hadoop user (no become_user)
+  tags:
+    - sync
+  ansible.builtin.command:
+    cmd: >
+      sudo -u hadoop rsync -avz
+      -e "ssh -o StrictHostKeyChecking=no"
+      hadoop@nn:/home/hadoop/
+      /home/hadoop/
+  become: true
+  register: rsync_result
+
+- debug:
+    var: rsync_result.stdout_lines
+
+- name: Add Hive environment variables to .profile
+  become: yes
+  ansible.builtin.blockinfile:
+    path: /home/hadoop/.profile
+    owner: hadoop
+    group: hadoop
+    create: yes
+    mode: '0644'
+    block: |
+      export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+      export HADOOP_HOME=/home/hadoop/hadoop-3.4.0
+      export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+      export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+      export HIVE_HOME=/home/hadoop/apache-hive-4.0.0-alpha-2-bin
+      export HIVE_CONF_DIR=$HIVE_HOME/conf
+      export HIVE_AUX_JAR_PATH=$HIVE_HOME/lib/*
+      export PATH=$PATH:$HIVE_HOME/bin
+
+- name: Ensure dependencies are installed
+  apt:
+    name:
+      - python3-venv
+      - python3-pip
+      - rsync
+      - wget
+    state: present
+
+- name: Create Python virtual environment for PySpark
+  tags:
+    - spark
+  ansible.builtin.command:
+    cmd: >
+      sudo -u hadoop python3 -m venv /home/hadoop/venv
+  become: true
+
+- name: Upgrade pip and install packages in venv
+  ansible.builtin.shell: |
+      sudo -u hadoop /home/hadoop/venv/bin/pip install --upgrade pip --progress-bar=on --log /tmp/pip_upgrade.log
+      sudo -u hadoop /home/hadoop/venv/bin/pip install pyspark==3.5.6 ipython onetl --progress-bar=on --log /tmp/pip_upgrade.log
+  become: true
