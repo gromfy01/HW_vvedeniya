@@ -110,6 +110,11 @@
     timeout: 60
   delegate_to: localhost
 
+- name: Start metastore
+  become: yes
+  ansible.builtin.shell: |
+    su - hadoop -c "source /home/hadoop/.profile && hive --hiveconf hive.server2.enable.doAs=false --hiveconf hive.security.authorization.enabled=false --service metastore 1>> /tmp/hm.log 2>> /tmp/hm_e.log &"
+
 - name: Connect to hive
   become: yes
   ansible.builtin.shell: |
