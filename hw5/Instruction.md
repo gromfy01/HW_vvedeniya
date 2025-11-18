@@ -25,8 +25,8 @@ sudo su -
 ```
 5. **Скопировать файл  пользователю hadoop**
 ```bash
-cp /home/team/W_vvedeniya/hw5/perfect.py /home/hadoop/
-chown hadoop:hadoop /home/hadoop/perfect.py
+cp /home/team/HW_vvedeniya/hw5/prefect_script.py /home/hadoop/
+chown hadoop:hadoop /home/hadoop/prefect_script.py
 ```
 6. **Сменить пользователя на hadoop**
 ```bash
@@ -34,6 +34,8 @@ su - hadoop
 ```
 
 7. **Запустить ssh туннели и проверить доступность web-интерфейсов**
+
+Запускать локально у себя на компьютере.
 
 ```bash
 ssh -L 10002:192.168.1.35:10002 -L 9870:192.168.1.35:9870 -L 8042:192.168.1.35:8042 -L 19888:192.168.1.35:19888 -L 8088:192.168.1.35:8088 team@176.109.91.44
@@ -57,10 +59,15 @@ hdfs dfs -put /tmp/people-10000.parquet /user/hadoop/input/
 hdfs dfs -ls /user/hadoop/input
 ```
 
-10. **Зaпускаем скрипт**
+10. **Скачиваем библиотеку**
 ```bash
 source venv/bin/activate
-python3 prefect.py
+pip install prefect
+```
+
+11. **Зaпускаем скрипт**
+```bash
+python3 prefect_script.py
 ```
 
 Это ETL-процесс для обработки данных о людях с использованием Spark и Prefect.
@@ -74,5 +81,5 @@ python3 prefect.py
 ```
 hw5/
 ├── Instruction.md
-└── prefect.py
+└── prefect_script.py
 ```

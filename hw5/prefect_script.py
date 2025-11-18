@@ -100,7 +100,7 @@ def analyze_data(df_with_metrics):
 
 @task
 def load(spark, df_with_metrics):
-   """Задача для сохранения данных в Hive"""
+    """Задача для сохранения данных в Hive"""
     hive = Hive(spark=spark, cluster="x")
     hive.check()
     
