@@ -18,26 +18,31 @@ git clone https://github.com/gromfy01/HW_vvedeniya.git
 cd HW_vvedeniya/hw5
 ```
 
-4. **Сменить пользователя**
+4. **Сменить пользователя на root**
 ```bash
-# перейти под пользователя root
 sudo su -
 # ввести пароль
-# перейти под пользователя hadoop
+```
+5. **Скопировать файл  пользователю hadoop**
+```bash
+cp /home/team/W_vvedeniya/hw5/perfect.py /home/hadoop/
+chown hadoop:hadoop /home/hadoop/perfect.py
+```
+6. **Сменить пользователя на hadoop**
+```bash
 su - hadoop
 ```
 
-5. **Запустить ssh туннели и проверить доступность web-интерфейсов**
+7. **Запустить ssh туннели и проверить доступность web-интерфейсов**
 
 ```bash
 ssh -L 10002:192.168.1.35:10002 -L 9870:192.168.1.35:9870 -L 8042:192.168.1.35:8042 -L 19888:192.168.1.35:19888 -L 8088:192.168.1.35:8088 team@176.109.91.44
 ```
 После этого в браузере откройте: [http://localhost:10002/](http://localhost:10002/)
 
-6. Проверим HDFS http://localhost:9870/explorer.html#/user/hive/warehouse
-В /user/hive/warehouse  видим test.db.
+8. **Проверим HDFS http://localhost:9870/explorer.html#/user/hive/warehouse/test.db**
 
-7. Загрузить тестовый датасет
+9. **Загрузить тестовый датасет**
 ```bash
 # Создать папку input в HDFS (если её ещё нет)
 hdfs dfs -mkdir -p /user/hadoop/input
@@ -52,7 +57,7 @@ hdfs dfs -put /tmp/people-10000.parquet /user/hadoop/input/
 hdfs dfs -ls /user/hadoop/input
 ```
 
-8. Зaпускаем скрипт.
+10. **Зaпускаем скрипт**
 ```bash
 source venv/bin/activate
 python3 prefect.py
@@ -60,7 +65,7 @@ python3 prefect.py
 
 Это ETL-процесс для обработки данных о людях с использованием Spark и Prefect.
 
-9. Смотрим содержимое test.db: http://localhost:9870/explorer.html#/user/hive/warehouse/test.db/people_with_metrics_prefect
+11. **Смотрим содержимое test.db: http://localhost:9870/explorer.html#/user/hive/warehouse/test.db/people_with_metrics_prefect**
 
 ---
 
