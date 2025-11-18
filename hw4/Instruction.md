@@ -1,6 +1,6 @@
 # Инструкция по развёртыванию кластера Hive
 
-Инструкция hw3 выполняются при условии, что выполнены шаги инструкций hw1 и hw2
+Инструкция hw4 выполняются при условии, что выполнены шаги инструкций hw1, hw2, hw3
 
 
 1. **Все действия выполняем на jn ноде**
@@ -25,10 +25,10 @@ cd ansible
 
 5. **Запустить Ansible playbook и на запрос ввести пароль пользователя team**
 ```bash
-ansible-playbook -i inventory.ini install_configure_hive.yml --ask-become-pass
+ansible-playbook -i inventory.ini setup_jn.yml --ask-become-pass
 ```
 
-Он разворачивает hive, выполняет проверки корректности установки, загружает датасет и создаёт таблицы. 
+Он разворачивает spark. 
 
 6. **Запустить ssh туннели и проверить доступность web-интерфейсов**
 
@@ -39,6 +39,9 @@ ssh -L 10002:192.168.1.35:10002 -L 9870:192.168.1.35:9870 -L 8042:192.168.1.35:8
 
 7. **Вызовем beeline**
 ```bash
+# перейти под пользователя root
+sudo su -
+# ввести пароль
 # перейти под пользователя hadoop
 su - hadoop
 beeline -u jdbc:hive2://nn:5433
@@ -47,6 +50,7 @@ beeline -u jdbc:hive2://nn:5433
 8. **Создадим базу данных**
 ```sql
 CREATE DATABASE test;
+!q
 ```
 
 9. Проверим HIVE http://localhost:10002
@@ -64,40 +68,128 @@ hdfs dfs -mkdir -p /user/hadoop/input
 hdfs dfs -ls /user/hadoop
 
 # Загрузить локальный файл data.parquet в HDFS
-hdfs dfs -put /tmp/data.parquet /user/hadoop/input/
+hdfs dfs -put /tmp/people-10000.parquet /user/hadoop/input/
 
 # Проверить, что файл на месте
 hdfs dfs -ls /user/hadoop/input
 ```
 
-12. Копирование python скрипта для трансформаций.
-```
-sudo cp /home/team/HW_vvedeniya/hw4/transform.py /home/hadoop/
-```
-
-13. Запустить python скрипт, который применяет следующие трансформации:
- - **Чтение** Parquet-файла из HDFS в DataFrame.
-- **Очистка данных** — замена пропусков (`NULL`) на нули в числовых колонках.
-- **Добавление метрик** — вычисляются новые столбцы:
-    - `kda` = (kills + assists) / deaths (или kills + assists, если deaths = 0);
-    - `efficiency` = gold_per_min + xp_per_min.
-- **Агрегация** — группировка по `hero_id` и расчёт средних значений (kills, deaths, assists, kda, efficiency) и числа матчей (`matches_played`).
-- **Фильтрация** — оставляются только герои с 500 и более матчами.
-- **Партиционирование** — объединение данных в одну партицию.
-- **Сохранение результата** — запись итоговых данных в HDFS (Parquet) и в таблицу Hive `test.dota_heroes_stats`.
+12. Зaпускаем ipython.
 ```bash
 source venv/bin/activate
-python3 transform.py
+ipython
 ```
 
-14. Смотрим содержимое test.db: http://localhost:9870/explorer.html#/user/hive/warehouse/test.db/
+13. Выполняем импорты необходимых библиотек.
+```python
+from onetl.connection import Hive, SparkHDFS
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import concat, col, lit, length, split, when, count, avg, min, max, desc
+from onetl.db import DBWriter
+from onetl.file import FileDFReader
+from onetl.file.format import Parquet
+```
+
+14. Создаём Spark сессию.
+```python
+spark = (
+    SparkSession.builder.master("yarn")
+    .appName('test.people_transformations')
+    .config("spark.sql.warehouse.dir", "/user/hive/warehouse")
+    .config("spark.hive.metastore.uris", "thrift://nn:9083")
+    .enableHiveSupport()
+    .getOrCreate()
+)
+```
+
+15. Инициализация HDFS кластера
+```python
+hdfs = SparkHDFS(host="nn", port=9000, spark=spark, cluster="x")
+hdfs.check()
+```
+
+16. Читаем датасет
+```python
+reader = FileDFReader(connection=hdfs, format=Parquet(), source_path="/user/hadoop/input")
+df = reader.run(["people-10000.parquet"])
+df.count()
+```
+
+17. Инициализация Hive
+```python
+hive = Hive(spark=spark, cluster="x")
+hive.check()
+```
+
+18. Выполнение трансформаций. Очистка данных - замена NULL значений.
+```python
+df_cleaned = df.fillna({
+    'First Name': 'Unknown',
+    'Last Name': 'Unknown',
+    'Sex': 'Unknown',
+    'Email': 'unknown@example.com',
+    'Phone': 'Unknown',
+    'Job Title': 'Unknown'
+})
+```
+
+19. Добавление вычисляемых полей на основе существующих данных
+```python
+df_with_metrics = df_cleaned \
+    .withColumn("full_name", concat(col("First Name"), lit(" "), col("Last Name"))) \
+    .withColumn("name_length", length(col("full_name"))) \
+    .withColumn("email_domain", split(col("Email"), "@").getItem(1)) \
+    .withColumn("name_complexity", 
+               when(col("name_length") < 10, "Simple")
+               .when((col("name_length") >= 10) & (col("name_length") < 15), "Medium")
+               .otherwise("Complex"))
+```
+
+20. Агрегация данных по различным критериям
+```python
+# Аналитическая агрегация по сложности имен
+name_complexity_stats = df_with_metrics.groupBy("name_complexity").agg(
+    count("*").alias("count_people"),
+    avg("name_length").alias("avg_name_length"),
+    min("name_length").alias("min_name_length"),
+    max("name_length").alias("max_name_length")
+)
+name_complexity_stats.show()
+
+# Аналитическая агрегация по доменам email
+email_stats = df_with_metrics.groupBy("email_domain").agg(
+    count("*").alias("user_count")
+).orderBy(desc("user_count")).limit(10)
+email_stats.show()
+
+# Аналитическая агрегация по полу
+gender_stats = df_with_metrics.groupBy("Sex").agg(
+    count("*").alias("count"),
+    avg("name_length").alias("avg_name_length")
+)
+gender_stats.show()
+```
+
+21. Сохранение в Hive основной датафрейм с партиционированием.
+```python
+writer = DBWriter(connection=hive, target="test.people_with_metrics", options={"partitionBy": "name_complexity"})
+writer.run(df_with_metrics)
+```
+
+22. Останавливаем Spark сессию.
+```python
+spark.stop()
+```
+
+23. Смотрим содержимое test.db: http://localhost:9870/explorer.html#/user/hive/warehouse/test.db/people_with_metrics
+
+---
 
 Структура репозитория
 
-```bash
+```
 hw4/
 ├── Instruction.md
-├── transform.py
 └── ansible/
     ├── inventory.ini    
     ├── roles/
